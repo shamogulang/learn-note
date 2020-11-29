@@ -551,3 +551,498 @@ Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
 
 可以看到锁的标记为10，处于重量级锁状态。
 
+
+
+### java栈的学习
+
+参考资料: https://www.artima.com/insidejvm/ed2/jvm8.html
+
+java栈里面由栈帧组成，每一个方法的创建，都会创建一个栈帧。jvm执行引擎执行的用到的就是栈顶的那个栈帧。这个栈帧也叫当前栈帧，对应的方法叫当前方法，对应的类叫当前类。方法的创建和退出，对应着栈帧入栈和出栈的动作。
+
+栈帧的结构：栈帧是方法运行需要用到的数据结构，用于存储数据和临时结果。主要由：局部变量表，操作数栈，方法返回地址，动态链接组成
+
+
+
+局部变量表
+
+用于存储方法的参数和局部变量，它的基本单位是slot，每一个slot能存32位，能存一个int，short，boolean，byte，char，reference,float类型，对于64位的long和double则需要两个连续的slot来存储。它的最大大小，存在方法的Code属性中的：max_locals的属性中。它的访问是通过索引来访问的。
+
+比如以下代码：
+
+```java
+package cn.yishijie.jol;
+
+public class JvmStack0 {
+
+    public static void main(String[] args) {
+        int a = 1; 
+        boolean b = true;
+        short c = 1;
+        Object obj = new Object();
+        float d = 2f;
+        char e = 12;
+        byte f = 1;
+    }
+}
+```
+
+![max-locals](D:\jeffchan\workspace\learn-note\img\max-locals.png)
+
+上面7个局部变量，都是占一个slot的，因为默认有个this的reference类型的局部变量，所以这里的最大槽数是8.
+
+验证long和double都需要两个槽：
+
+```java
+package cn.yishijie.jol;
+
+public class JvmStack1 {
+
+    public static void main(String[] args) {
+        double a = 12D;
+        long b = 12L;
+    }
+}
+```
+
+下面的图片中，最大槽数是5，因为long两个，double两个，剩下一个是reference类型的this
+
+![twoslot](D:\jeffchan\workspace\learn-note\img\twoslot.png)
+
+验证下槽的复用:
+
+```java
+package cn.yishijie.jol;
+public class JvmStack2 {
+
+    public static void main(String[] args) {
+        {
+            double a = 12D;
+        }
+        long b = 12L;
+    }
+}
+```
+
+这里的b变量会复用a变量的槽，所以这里理论上来说一共是3个槽的。
+
+![reuseslot](D:\jeffchan\workspace\learn-note\img\reuseslot.png)
+
+图上也是只有3个槽。
+
+
+
+关于槽没复用，带来内存泄漏的问题。
+
+```java
+package cn.yishijie.jol;
+
+public class JvmStack2 {
+
+    public static void main(String[] args) {
+        {
+            byte[] b = new byte[1024*1024*10];
+        }
+        //int a = 1;
+        System.gc();
+    }
+}
+```
+
+注释掉：
+
+![leak](D:\jeffchan\workspace\learn-note\img\leak.png)
+
+可以发现，这10M的内存，是没有被回收掉的，按道理说，gc触发的地方，已经超过b的作用域了，但是却没有回收掉已经没有用的对象。其实这是因为这个方法的栈帧中的局部变量表还是存着上述的对象引用，所以无法将上述的对象回收，如果这个时候，有新的变量需要使用到slot时，就会复用上述的对象占用的槽，那么上述对象的gc root就无法访问到，所以就可以回收上述的对象。
+
+将注释的那个代码打开，可以发现打印出的日志：
+
+![unleak](D:\jeffchan\workspace\learn-note\img\unleak.png)
+
+发现对应的对象b，已经被回收掉了。
+
+
+
+操作数栈
+
+操作数栈也称作操作栈，一种先进后出的数据结构。
+
+和局部变量表一样，操作数栈也被组织成字节数组，但是操作数栈不是通过索引来访问的，而是通过pushing和poping 值来访问。如果一个指令将一个值压入操作数栈中，过后就有有一个指令会弹出栈顶值，并且使用这个值。java虚拟机中操作数栈的元素类型和局部变量表的元素是一样的，都是int,long,float,double,reference 和returnType;在将byte,short,char压入栈之前，会将他们转成int类型。
+
+java虚拟机是基于栈的而不是基于寄存器，因为java虚拟机获取操作数，是从栈中获取的，并不是在寄存器上获取的。它使用操作数栈作为工作空间。许多指令弹出栈顶的值，进行操作，然后压栈。比如iadd指令就是将操作数栈顶的两个元素弹出相加，然后压入栈。
+
+比如以下指令：
+
+iload_0: 将局部变量表中第0个索引的局部变量压入栈，
+
+iload_1:将局部变量表中第1个索引的局部变量压入栈。
+
+iadd：一次弹出栈顶两个元素，然后相机，再压入栈中。
+
+istore_2: 弹出栈顶元素，然后存入到局部表第二个索引的局部变量中。
+
+![stack](D:\jeffchan\workspace\learn-note\img\stack.png)
+
+如下代码：
+
+```java
+package cn.yishijie.jol;
+
+public class JvmStack3 {
+    public static void main(String[] args) {
+        int a = 10;
+        int b = 100;
+        int c = a + b;
+    }
+}
+```
+
+![bytecodes](D:\jeffchan\workspace\learn-note\img\bytecodes.png)
+
+
+
+点入到杂项 验证下：
+
+![bytecode1](D:\jeffchan\workspace\learn-note\img\bytecode1.png)
+
+局部变量槽是4个（max_locals），字节码长度是11，栈的最大深度（max_stacks）是2.
+
+查看字节码指令的含义：
+
+https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-6.html#jvms-6.5.bipush
+
+```java
+ 0 bipush 10  // 将10压入栈，这里占用两个字节，一个是指令占用一个字节，操作数占用一个字节
+ 2 istore_1   // 将栈顶元素弹出，存入到索引位置为1的局部变量中
+ 3 bipush 100 // 将100压入栈顶
+ 5 istore_2  // 将栈顶元素弹出，存入到索引位置为2的局部变量中
+ 6 iload_1   // 将局部变量1的值压入栈中
+ 7 iload_2   // 将局部变量2 的值压入栈中
+ 8 iadd      // 将栈顶两个元素弹出，相加，然后压入栈中
+ 9 istore_3  // 将栈顶元素弹出压入到局部变量3中。
+10 return // 返回
+     
+// 整个压栈的过程，最大的深度，将两个局部变量得值压入到栈中。为2
+```
+
+
+
+动态链接：
+
+当需要调用其他方法的时候，需要将这些方法的符号引用转成直接引用。当每次运行时，
+
+都需要转成直接引用的话，这种转换叫动态链接。如果仅仅时在类加载，或者第一次使用
+
+时才需要转换的话，叫静态解析。
+
+直接引用，是能在内存定位到的地址。可以直接定位到要执行的方法。
+
+符号引用，就是常量池中的一些类型。比如Methodref类型的数据。
+
+```java
+package cn.yishijie.jol;
+
+public class JvmDynamicLink {
+
+    public static void main(String[] args) {
+        JvmDynamicLink jvmDynamicLink = new JvmDynamicLink();
+        jvmDynamicLink.link();
+    }
+
+    public void link(){
+    }
+}
+```
+
+通过javap -verbose JvmDynamicLink.class查看:
+
+```java
+public class cn.yishijie.jol.JvmDynamicLink
+  minor version: 0
+  major version: 52
+  flags: ACC_PUBLIC, ACC_SUPER
+Constant pool:
+   #1 = Methodref          #5.#21         // java/lang/Object."<init>":()V
+   #2 = Class              #22            // cn/yishijie/jol/JvmDynamicLink
+   #3 = Methodref          #2.#21         // cn/yishijie/jol/JvmDynamicLink."<init>":()V
+   #4 = Methodref          #2.#23         // cn/yishijie/jol/JvmDynamicLink.link:()V
+   #5 = Class              #24            // java/lang/Object
+   #6 = Utf8               <init>
+   #7 = Utf8               ()V
+   #8 = Utf8               Code
+   #9 = Utf8               LineNumberTable
+  #10 = Utf8               LocalVariableTable
+  #11 = Utf8               this
+  #12 = Utf8               Lcn/yishijie/jol/JvmDynamicLink;
+  #13 = Utf8               main
+  #14 = Utf8               ([Ljava/lang/String;)V
+  #15 = Utf8               args
+  #16 = Utf8               [Ljava/lang/String;
+  #17 = Utf8               jvmDynamicLink
+  #18 = Utf8               link
+  #19 = Utf8               SourceFile
+  #20 = Utf8               JvmDynamicLink.java
+  #21 = NameAndType        #6:#7          // "<init>":()V
+  #22 = Utf8               cn/yishijie/jol/JvmDynamicLink
+  #23 = NameAndType        #18:#7         // link:()V
+  #24 = Utf8               java/lang/Object
+{
+  public cn.yishijie.jol.JvmDynamicLink();
+    descriptor: ()V
+    flags: ACC_PUBLIC
+    Code:
+      stack=1, locals=1, args_size=1
+         0: aload_0
+         1: invokespecial #1                  // Method java/lang/Object."<init>":()V
+         4: return
+      LineNumberTable:
+        line 3: 0
+      LocalVariableTable:
+        Start  Length  Slot  Name   Signature
+            0       5     0  this   Lcn/yishijie/jol/JvmDynamicLink;
+
+  public static void main(java.lang.String[]);
+    descriptor: ([Ljava/lang/String;)V
+    flags: ACC_PUBLIC, ACC_STATIC
+    Code:
+      stack=2, locals=2, args_size=1
+         0: new           #2                  // class cn/yishijie/jol/JvmDynamicLink
+         3: dup
+         4: invokespecial #3                  // Method "<init>":()V
+         7: astore_1
+         8: aload_1
+         9: invokevirtual #4                  // Method link:()V
+        12: return
+      LineNumberTable:
+        line 6: 0
+        line 7: 8
+        line 8: 12
+      LocalVariableTable:
+        Start  Length  Slot  Name   Signature
+            0      13     0  args   [Ljava/lang/String;
+            8       5     1 jvmDynamicLink   Lcn/yishijie/jol/JvmDynamicLink;
+
+  public void link();
+    descriptor: ()V
+    flags: ACC_PUBLIC
+    Code:
+      stack=0, locals=1, args_size=1
+         0: return
+      LineNumberTable:
+        line 12: 0
+      LocalVariableTable:
+        Start  Length  Slot  Name   Signature
+            0       1     0  this   Lcn/yishijie/jol/JvmDynamicLink;
+}
+SourceFile: "JvmDynamicLink.java"
+```
+
+直接去到main方法的Code中，发现调用方法的时候：执行指令：
+
+9: invokevirtual #4    这个4代表的就是常量池里第四个常量的位置：
+
+ #4 ->   Methodref 类型： #2.#23     #23 ->  #18:#7     #18  ->   link   #7 ->  ()V
+
+最终指向： cn/yishijie/jol/JvmDynamicLink.link:()V  这个就是符号引用。
+
+
+
+方法返回
+
+方法返回有两种，一种是正常返回，恢复调用方法的栈帧信息和pc值就可以回到方法的调用处。
+
+```java
+package cn.yishijie.jol;
+
+public class JvmReturn {
+
+    public static void main(String[] args) {
+        noReturn();
+        int i = returnInt();
+        long l = returnLong();
+        throwEx();
+    }
+
+    public static void noReturn(){
+    }
+
+    public static int throwEx(){
+        throw new RuntimeException();
+    }
+    public static int returnInt(){
+        return 10;
+    }
+
+    public static long returnLong(){
+        return 10L;
+    }
+}
+```
+
+javap -verbose JvmReturn.class
+
+太长了，我这里只截取部分:
+
+```java
+ public static void main(java.lang.String[]);
+    descriptor: ([Ljava/lang/String;)V
+    flags: ACC_PUBLIC, ACC_STATIC
+    Code:
+      stack=2, locals=4, args_size=1
+         0: invokestatic  #2                  // Method noReturn:()V
+         3: invokestatic  #3                  // Method returnInt:()I
+         6: istore_1
+         7: invokestatic  #4                  // Method returnLong:()J
+        10: lstore_2
+        11: return
+      LineNumberTable:
+        line 6: 0
+        line 7: 3
+        line 8: 7
+        line 9: 11
+      LocalVariableTable:
+        Start  Length  Slot  Name   Signature
+            0      12     0  args   [Ljava/lang/String;
+            7       5     1     i   I
+           11       1     2     l   J
+
+  public static void noReturn();
+    descriptor: ()V
+    flags: ACC_PUBLIC, ACC_STATIC
+    Code:
+      stack=0, locals=0, args_size=0
+         0: return
+      LineNumberTable:
+        line 12: 0
+
+  public static int returnInt();
+    descriptor: ()I
+    flags: ACC_PUBLIC, ACC_STATIC
+    Code:
+      stack=1, locals=0, args_size=0
+         0: bipush        10
+         2: ireturn
+      LineNumberTable:
+        line 15: 0
+
+  public static long returnLong();
+    descriptor: ()J
+    flags: ACC_PUBLIC, ACC_STATIC
+    Code:
+      stack=2, locals=0, args_size=0
+         0: ldc2_w        #5                  // long 10l
+         3: lreturn
+      LineNumberTable:
+        line 19: 0
+                                     
+    public static int throwEx();
+    descriptor: ()I
+    flags: ACC_PUBLIC, ACC_STATIC
+    Code:
+      stack=2, locals=0, args_size=0
+         0: new           #6                  // class java/lang/RuntimeException
+         3: dup
+         4: invokespecial #7                  // Method java/lang/RuntimeException."<init>":()
+V
+         7: athrow
+      LineNumberTable:
+        line 16: 0
+}
+```
+
+
+
+可以看到正常返回的指令，return返回void  ireturn返回int型 lreturn返回long型。如果是正常返回的话，方法退出后，调用者的栈帧即为当前栈帧，pc下一条指令，就是返回的地址。这里如果是返回void,栈帧就不保存返回结果。如果有返回值的，返回后，会将值压入栈中。
+
+         0: invokestatic  #2                  // Method noReturn:()V
+         3: invokestatic  #3                  // Method returnInt:()I
+         6: istore_1
+         7: invokestatic  #4                  // Method returnLong:()J
+        10: lstore_2
+        11: return
+第一个空返回的直接就返回了。有返回值的，比如invokestatic  #3，它返回的是int类型的值，
+
+那么会紧接着istore_1将栈顶元素（int类型）弹出，存入到第一个局部变量中。
+
+
+
+直接抛出异常： athrow，这个是显示抛出异常，将异常交给调用者处理。
+
+
+
+其他信息：
+
+还有一些信息，比如：<LineNumberTable> 用于调试用的，记录源码的行号信息和  <LocalVariableTable>记录源码方法的参数信息。
+
+
+
+异常表的结构：
+
+```java
+package cn.yishijie.jol;
+
+public class TestFinal {
+    public static void main(String[] args) {
+        int a = a(10);
+        System.out.println(a);
+    }
+
+    public static  int a(int a){
+        try {
+            return a;
+        }catch (Exception e){
+            return -1;
+        }finally {
+           a = a+100;
+        }
+    }
+}
+```
+
+直接copy Code属性的部分：
+
+```java
+ Code:
+      stack=2, locals=4, args_size=1
+         0: iload_0  // 将第0个局部变量的值10入栈
+         1: istore_1 // 将栈顶值10存入到第一个局部变量中 
+             
++++++++++++++finally开始0++++++++++++++++++++
+         2: iload_0 // 将第0个局部变量10的值入栈
+         3: bipush        100 // 将100的值入栈
+         5: iadd // 弹出栈顶两个元素，相加入栈 110
+         6: istore_0 // 将栈顶的值110存入到第0个变量中
+===============finally结束0=================
+             
+         7: iload_1 // 将第一个变量10的值入栈
+         8: ireturn // 返回栈顶的元素10。
+         9: astore_1 
+        10: iconst_m1
+        11: istore_2
+        
++++++++++++++finally开始1++++++++++++++++++++
+        12: iload_0
+        13: bipush        100
+        15: iadd
+        16: istore_0
+===============finally结束1===============
+            
+        17: iload_2
+        18: ireturn
+        19: astore_3
+ +++++++++++++finally开始2++++++++++++++++++++
+        20: iload_0
+        21: bipush        100
+        23: iadd
+        24: istore_0
+ ===============finally结束2===============
+        25: aload_3
+        26: athrow
+      Exception table:
+         from    to  target type
+             0     2     9   Class java/lang/Exception
+             0     2    19   any
+             9    12    19   any
+```
+
+
+
