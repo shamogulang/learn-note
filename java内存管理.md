@@ -1254,7 +1254,7 @@ after gc->java.lang.ref.PhantomReference@3b9a45b3
 
 空间分配担保：
 
-这个分配担保是在新生代空间，即使是进行了minor gc之后还是不够的状态
+这个分配担保是在新生代空间，即使是进行了minor gc之后还是不够的状态111
 
 
 
