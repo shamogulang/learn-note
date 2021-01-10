@@ -7,7 +7,7 @@
 
 解压（注意：我这里在windows下使用，用git base客户端进行操作）
 
-![gitstash](D:\jeffchan\markdown\image\gitbase.png)
+![gitstash](kafka.assets/gitbase.png)
 
 ```shell
 tar -xzf  kafka_2.12-2.7.0.tgz
@@ -86,7 +86,7 @@ bin/kafka-console-producer.sh --broker-list localhost:9092 --topic jeffchan0
 
 启动之后，可以往主题 jeffchan0中发送消息
 
-![topicjeffchan](D:\jeffchan\markdown\image\topicjeffchan.png)
+![topicjeffchan](kafka.assets/topicjeffchan.png)
 
 
 
@@ -98,7 +98,7 @@ bin/kafka-console-producer.sh --broker-list localhost:9092 --topic jeffchan0
  bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic jeffchan0 --from-beginning
 ```
 
-![consumer](D:\jeffchan\markdown\image\consumer.png)
+![consumer](assets/consumer.png)
 
 可以发现，上述生产者发布的消息已经被消费者消费了。
 
@@ -116,11 +116,11 @@ kafka中消息是以主题topic进行分类的，生产者和消费者对消息�
 
 下来文件加就是topic + partition的目录：
 
-![tp](D:\jeffchan\markdown\image\tp.png)
+![tp](kafka.assets/tp.png)
 
 目录里面的内容：
 
-![tpdata](D:\jeffchan\markdown\image\tpdata.png)
+![tpdata](kafka.assets/tpdata.png)
 
 可以看到对应的文件为.index和.log，同时明明从offset等于0开始命名。这里.log文件的大小，可以通过：log.segment.bytes=xxx来设置
 
@@ -251,4 +251,3 @@ RoundRobin：这种方式解决了上述Range方式中那个问题，就是它�
 
 
 
-Sticky：
