@@ -1046,3 +1046,212 @@ public class TestFinal {
 
 
 
+引用分类:
+
+引用可以分成四类，分别为：强引用，软引用，弱引用和虚引用。
+
+对于强引用，是我们最常见，比如直接创建一个对象：Obeject obj = new Object();那么obj就是一个强引用。在当前栈帧有效的作用域内，是永远不会被回收的。
+
+
+
+软引用是指被SoftReference类实现的引用。它的特征是当系统有足够的内存的时候，它能够存活，当系统内存不足，垃圾回收的动作到来时，它会被回收释放内存。
+
+```java
+package cn.yishijie.jol;
+
+import java.lang.ref.SoftReference;
+import java.lang.ref.WeakReference;
+
+public class SoftTest {
+
+    public static void main(String[] args) {
+        SoftReference<String> softStr = new SoftReference<>(new String("jeff.chan"));
+
+        System.out.println("before gc -> " + softStr.get());
+
+        System.gc();
+
+        System.out.println("after gc -> " + softStr.get());
+    }
+}
+```
+
+执行的结果：加上虚拟机参数:  -XX:+PrintGCDetails 
+
+```java
+before gc -> jeff.chan
+[GC (System.gc()) [PSYoungGen: 5350K->1047K(38400K)] 5350K->1055K(125952K), 0.0007776 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+[Full GC (System.gc()) [PSYoungGen: 1047K->0K(38400K)] [ParOldGen: 8K->937K(87552K)] 1055K->937K(125952K), [Metaspace: 2988K->2988K(1056768K)], 0.0035376 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+after gc -> jeff.chan
+```
+
+发现没有被回收。这是因为内存足够：
+
+
+
+```java
+package cn.yishijie.jol;
+
+import java.lang.ref.SoftReference;
+import java.util.ArrayList;
+import java.util.List;
+
+public class SoftTest {
+
+    public static void main(String[] args) {
+        SoftReference<byte[]> softStr = new SoftReference<>(new byte[1024*1024]);
+
+        System.out.println("before gc -> " + softStr.get());
+        List<byte[]> list = new ArrayList<>();
+        int i = 0;
+        while (true){
+            list.add(new byte[1024*1024]);
+            System.out.println(++i+"allow memory -> " + softStr.get());
+        }
+    }
+}
+```
+
+加入jvm的参数: -XX:+PrintGCDetails -Xmx10m -Xms10m 执行上述的代码
+
+返回结果：
+
+```java
+before gc -> [B@3b9a45b3
+[1]allow memory -> [B@3b9a45b3
+[2]allow memory -> [B@3b9a45b3
+[3]allow memory -> [B@3b9a45b3
+[4]allow memory -> [B@3b9a45b3
+[5]allow memory -> [B@3b9a45b3
+[GC (Allocation Failure) [PSYoungGen: 1667K->487K(2560K)] 8203K->7169K(9728K), 0.0006804 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+[6]allow memory -> [B@3b9a45b3
+[GC (Allocation Failure) --[PSYoungGen: 1551K->1551K(2560K)] 8233K->8249K(9728K), 0.0004440 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+[Full GC (Ergonomics) [PSYoungGen: 1551K->1497K(2560K)] [ParOldGen: 6698K->6650K(7168K)] 8249K->8147K(9728K), [Metaspace: 3249K->3249K(1056768K)], 0.0037707 secs] [Times: user=0.08 sys=0.00, real=0.00 secs] 
+[GC (Allocation Failure) --[PSYoungGen: 1497K->1497K(2560K)] 8147K->8147K(9728K), 0.0005219 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+[Full GC (Allocation Failure) [PSYoungGen: 1497K->0K(2560K)] [ParOldGen: 6650K->7094K(7168K)] 8147K->7094K(9728K), [Metaspace: 3249K->3249K(1056768K)], 0.0039966 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+[7]allow memory -> null
+[Full GC (Ergonomics) [PSYoungGen: 1064K->1024K(2560K)] [ParOldGen: 7094K->7062K(7168K)] 8159K->8086K(9728K), [Metaspace: 3250K->3250K(1056768K)], 0.0054518 secs] [Times: user=0.00 sys=0.00, real=0.01 secs] 
+[Full GC (Allocation Failure) [PSYoungGen: 1024K->1024K(2560K)] [ParOldGen: 7062K->7062K(7168K)] 8086K->8086K(9728K), [Metaspace: 3250K->3250K(1056768K)], 0.0025587 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+Exception in thread "main" java.lang.OutOfMemoryError: Java heap space
+	at cn.yishijie.jol.SoftTest.main(SoftTest.java:16)
+```
+
+可以发现第七次的时候； [7]allow memory -> null，已经把上面的软引用的对象给回收掉了。紧接着后续就抛出OOM异常了，因为内存不够了。所以软引用是在内存告急时，才会被回收释放。
+
+使用场景：在Hibernate中就有用到这个软引用，就是当作缓存，当内存足够的时候，数据存在缓存中，可以直接提交查询的性能，当内存不够时，又可以释放内存，防止OOM的发生。举个例子：比如以前我做过一个城市列表的需求，第一次的时候，通过查询数据库放入到软引用的内存中，然后后续需要用到这个城市列表的时候，直接从缓存中拿，而不用穿透到数据库中去，提供了性能。但是当内存告急的时候，那么就会释放这部分内存。缓解内存的压力。内存中没有这些城市的数据，不会引起服务异常，只不过是，下一次需要数据的时候，就需要穿透数据库拿数据而已。
+
+
+
+弱引用是指被WeakReference实现的引用。它只能存活到下一次垃圾回收发生之前。如果进行垃圾回收，那么一定会被回收。
+
+```java
+package cn.yishijie.jol;
+
+import java.lang.ref.WeakReference;
+public class WeakTest {
+
+    public static void main(String[] args) {
+        WeakReference<String> weakStr = new WeakReference<>(new String("jeff.chan"));
+
+        System.out.println("before gc -> "+weakStr.get());
+
+        System.gc();
+
+        System.out.println("after gc -> " + weakStr.get());
+    }
+}
+```
+
+返回结果：加上虚拟机参数:  -XX:+PrintGCDetails 
+
+```java
+before gc -> jeff.chan
+[GC (System.gc()) [PSYoungGen: 5350K->1015K(38400K)] 5350K->1023K(125952K), 0.0165296 secs] [Times: user=0.00 sys=0.00, real=0.02 secs] 
+[Full GC (System.gc()) [PSYoungGen: 1015K->0K(38400K)] [ParOldGen: 8K->944K(87552K)] 1023K->944K(125952K), [Metaspace: 3102K->3102K(1056768K)], 0.0037297 secs] [Times: user=0.01 sys=0.00, real=0.00 secs] 
+after gc -> null
+```
+
+可以发现，确实在gc之后，就拿不到对应的那个对象了。
+
+使用场景：
+
+1、ThreadLocal里面就是使用了弱引用减少内存泄漏的发生。但是我觉得这个使用场景，并不怎么好。我提出了以下的疑问？
+
+```java
+因为ThreadLocal我看到很多人使用把它当作一个全局的静态变量，一般来说类被加载进来就会有静态变量。而静态变量要被回收的话，条件是很苛刻，基本是不被回收的，那么就是说，下一次垃圾回收到来之前，根本就无法回收掉被当作弱引用创建出来的ThreadLocal，因为它有一个强引用引用着。按照这种场景的话，弱引用感觉什么用都没有。
+
+就算有使用场景，ThreadLocal的强引用会被回收，那么对于存活的线程来说，只不过是ThreaLocalMap里面key引用着ThreadLocal这个实例，况且这个对象并不怎么占内存。而且也是推荐使用完ThreadLocal后，要手动去remove掉。那么感觉弱引用也没啥用。
+
+ThreadLocal就算弱引用被回收了。那么这个ThreadLocal不使用的话，对应的value，也是被存活的线程引用的，也并不会回收掉。也会造成内存泄漏，最终也是要手动去remove掉，或者是再次调用set或者get的方法。
+
+难道就为了弱引用被垃圾回收后（看使用场景，经常是通过全局的静态变量，回收的概率又不太高），当再使用set或者get的方法能够主动清除value这个功能，就引入了这个设计？
+```
+
+2、当作缓存使用，在下一次gc之前可以拿到，gc之后就从数据库中拿数据。但是感觉SoftReference用作缓存更适合些。
+
+
+
+虚引用时指被PhantomReference类实现的引用，无法通过虚引用来获取到一个对象实例。它被用来跟踪对象引用被加入到队列的时刻。所以它的使用是需要和队列一起使用的。其实上述的软引用和弱引用也是可以搭配队列使用的。但是虚引用必须搭配队列使用。
+
+```java
+package cn.yishijie.jol;
+
+import cn.yishijie.config.Person;
+
+import java.lang.ref.PhantomReference;
+import java.lang.ref.Reference;
+import java.lang.ref.ReferenceQueue;
+
+public class PhantomReferenceTest {
+    public static void main(String[] args) throws Exception{
+        ReferenceQueue<Person> queue = new ReferenceQueue<>();
+        PhantomReference<Person> reference = new PhantomReference<>(new Person(23,"jeff.chan"),queue);
+        System.out.println("before gc->"+reference.get());
+        System.out.println("before gc->"+queue.poll());
+        System.gc();
+        System.out.println("after gc->"+reference.get());
+        System.out.println("after gc->"+queue.poll());
+    }
+}
+```
+
+
+
+返回结果：
+
+```java
+before gc->null
+before gc->null
+[GC (System.gc()) [PSYoungGen: 5350K->1031K(38400K)] 5350K->1039K(125952K), 0.0013433 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+[Full GC (System.gc()) [PSYoungGen: 1031K->0K(38400K)] [ParOldGen: 8K->979K(87552K)] 1039K->979K(125952K), [Metaspace: 3249K->3249K(1056768K)], 0.0036022 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+after gc->null
+after gc->java.lang.ref.PhantomReference@3b9a45b3
+```
+
+
+
+## 3、垃圾回收算法
+
+基于不同的区域会有不同的垃圾回收算法，因为不同区域对象的存活概率不同，对象存活多的，复制成本高，效率低；直接清除掉废弃的，效率就会比较高，成本低。相反，如果对象存活低的，复制成本就比较低，效率高；此时如果采用标记清除，成本就会比较高，效率低下了。
+
+### 3.1、标记清除
+
+标记清除，顾名思义，就是先标记哪些对象需要被清除，然后对打上清除标记的对象进行释放内存即可。对于hotspot虚拟机，对象头中，有两位锁标记，当值为11时，就说明它是需要被清除的对象。这种算法，一般用在对象存活比较多的场景。老年代里的对象就满足这种特征，因为gc执行后，基本都会存活，回收的对象并不多。比如老年代有100个对象。gc执行后，发现只有2个对象是GC Roots不能到达的，那么就会标记这两个对象，同时释放掉这两个对象的内存。这种算法有个缺点，就是会产生空间碎片，比如我老年代有10M的内存剩余，但是却分布在5个区域，都是2M分布的，那么此时我需要分配一个3M内存的对象，发现无法分配。
+
+
+
+### 3.2、复制算法
+
+复制算法，就是复制存活的对象，然后将存活的对象存起来，对扫描的区域进行一整块清除。这种算法，需要一块空闲的空间来存储存活的对象。年轻代里面的对象就满足这种特征，同时还将空间分成3块，一块eden区，两个Survivor区，比例默认分别为8 : 1 : 1，所以这里使用10%空间的代价来存储存活的对象，然后对另外两个内存按照整块区域清除。比如一般大部分对象都是用过就不再使用的，存活率并不高。比如我请求一个网站，对应到服务器接收请求，假设整个请求的过程，会创建100个对象，一般来说对象分配优先是分配在年轻代的（有其他分配场景可能不是分配在年轻代），当请求完成后，就只有一个对象是存活的，那么此时如果垃圾回收的动作到来，只需要这个对象复制到用来存储存活对象的Survivor区，然后将伊甸园和另外一块survivor区整块清除掉，效率就比较好。
+
+
+
+### 3.3、标记整理算法
+
+这种算法是将存活的对象往一端移动，然后清除掉存活对象边界外的内存空间。这个算法也不会产生空间碎片。不过这种方法，如果每次回收都有大量回收区域，那么修改对象引用就会变得比较耗时间，那么服务停顿的时间就更长了。
+
+
+
+空间分配担保：
+
+这个分配担保是在新生代空间，即使是进行了minor gc之后还是不够的状态
